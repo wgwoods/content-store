@@ -19,7 +19,7 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteStringC)
  where
 
-import           Conduit(Conduit, awaitForever)
+import           Conduit(Conduit, awaitForever, yield)
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
@@ -241,8 +241,9 @@ storeByteStringC :: ContentStore -> Conduit BS.ByteString CsMonad ObjectDigest
 storeByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    awaitForever $ \bs ->
-        lift $ doStore cs algo hashByteString BS.writeFile bs
+    awaitForever $ \bs -> do
+        digest <- lift $ doStore cs algo hashByteString BS.writeFile bs
+        yield digest
 
 --
 -- LAZY BYTE STRING INTERFACE
@@ -263,5 +264,6 @@ storeLazyByteStringC :: ContentStore -> Conduit LBS.ByteString CsMonad ObjectDig
 storeLazyByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    awaitForever $ \bs ->
-        lift $ doStore cs algo hashLazyByteString LBS.writeFile bs
+    awaitForever $ \bs -> do
+        digest <- lift $ doStore cs algo hashLazyByteString LBS.writeFile bs
+        yield digest
