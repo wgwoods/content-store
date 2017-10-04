@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -21,8 +22,8 @@ module Data.ContentStore(ContentStore,
 import           Conduit(Conduit, awaitForever)
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
-import           Control.Monad.Except(ExceptT, catchError, runExceptT, throwError)
-import           Control.Monad.IO.Class(liftIO)
+import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
+import           Control.Monad.IO.Class(MonadIO, liftIO)
 import           Control.Monad.Trans.Class(lift)
 import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
@@ -50,10 +51,41 @@ data CsError = CsErrorCollision String
              | CsErrorUnsupportedHash String
  deriving (Eq, Show)
 
-type CsMonad = ResourceT (ExceptT CsError IO)
+newtype CsMonad a = CsMonad { getCsMonad :: ResourceT (ExceptT CsError IO) a }
+
+instance Applicative CsMonad where
+    pure a = CsMonad $ return a
+
+    a <*> b = do
+        ra <- liftIO $ runCsMonad a
+        case ra of
+            Left e  -> CsMonad $ throwError e
+            Right k -> do
+                rb <- liftIO $ runCsMonad b
+                case rb of
+                    Left e  -> CsMonad $ throwError e
+                    Right x -> return $ k x
+
+instance Functor CsMonad where
+    fmap f x = x >>= (pure . f)
+
+instance Monad CsMonad where
+    a >>= f = do
+        result <- liftIO $ runCsMonad a
+        case result of
+            Left e  -> CsMonad $ throwError e
+            Right v -> f v
+
+instance MonadError CsError CsMonad where
+    catchError = catchError
+
+    throwError = throwError
+
+instance MonadIO CsMonad where
+    liftIO = liftIO
 
 runCsMonad :: CsMonad a -> IO (Either CsError a)
-runCsMonad x = runExceptT $ runResourceT x
+runCsMonad x = runExceptT $ runResourceT $ getCsMonad x
 
 csSubdirs :: [String]
 csSubdirs = ["objects"]
